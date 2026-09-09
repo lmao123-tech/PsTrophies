@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 # Local SQLite dev DB
 db/*.db
 db/*.db-journal
+
+#InteliJ folders
+.idea/
