@@ -20,7 +20,8 @@ const crypto = require("crypto");
 const {
     exchangeNpssoForAccessCode,
     exchangeAccessCodeForAuthTokens,
-    exchangeRefreshTokenForAuthTokens
+    exchangeRefreshTokenForAuthTokens,
+    getProfileFromUserName
 } = require("psn-api"); // library of reverse engineered SONY api's
 
 const db = require("../../db");
@@ -34,6 +35,63 @@ async function exchangeNpssoForTokens(npsso) {
     return exchangeAccessCodeForAuthTokens(accessCode);
 }
 
+// First-time (or re-)link of a PSN account: trade the NPSSO for real tokens,
+// pull the profile so we know who this is, upsert the user row, then store
+// the encrypted tokens for that user. Returns only what the HTTP layer is
+// allowed to hand back to the browser — never raw tokens.
+async function linkPSNAccount(npsso) {
+    const accountTokens = await exchangeNpssoForTokens(npsso);
+
+    const profileResponse = await getProfileFromUserName(accountTokens, "me");
+    const profile = profileResponse.profile ?? profileResponse;
+    const {onlineId, accountId, avatarUrls} = profile;
+    const avatarUrl = Array.isArray(avatarUrls) ? avatarUrls[0]?.avatarUrl : undefined;
+
+    const userId = upsertUser({accountId, onlineId, avatarUrl});
+    storeTokens(userId, accountTokens);
+
+    return {userId, onlineId};
+}
+
+function upsertUser({accountId, onlineId, avatarUrl}) {
+    const existing = db.prepare("SELECT id FROM users WHERE psn_account_id = ?").get(accountId);
+    if (existing) {
+        db.prepare("UPDATE users SET online_id = ? , avatar_url = ?, last_synced_at = datetime('now') WHERE id = ?").run(onlineId, avatarUrl ?? null, existing.id);
+        return existing.id;
+    }
+
+    const id = crypto.randomUUID();
+    db.prepare("INSERT INTO users (id, psn_account_id, online_id, avatar_url, last_synced_at) VALUES (?, ?, ?, ?, datetime('now'))").run(id, accountId, onlineId, avatarUrl ?? null);
+    return id;
+}
+
+// First-time token store for a user we just linked. Separate from
+// refreshAccessToken because there's no existing psn_auth_tokens row yet to
+// SELECT a refresh token out of — this is the INSERT that creates that row
+// (or overwrites it, if the account is being re-linked).
+function storeTokens(userId, tokens) {
+    const accessTokenExpiresAt = new Date(Date.now() + tokens.expiresIn * 1000).toISOString();
+    const refreshTokenExpiresAt = new Date(Date.now() + tokens.refreshTokenExpiresIn * 1000).toISOString();
+
+    db.prepare(
+        `INSERT INTO psn_auth_tokens (user_id, access_token, refresh_token, access_token_expires_at, refresh_token_expires_at, needs_reauth, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+         ON CONFLICT (user_id) DO UPDATE SET
+           access_token = excluded.access_token,
+           refresh_token = excluded.refresh_token,
+           access_token_expires_at = excluded.access_token_expires_at,
+           refresh_token_expires_at = excluded.refresh_token_expires_at,
+           needs_reauth = 0,
+           updated_at = datetime('now')`
+    ).run(
+        userId,
+        encryptToken(tokens.accessToken),
+        encryptToken(tokens.refreshToken),
+        accessTokenExpiresAt,
+        refreshTokenExpiresAt
+    );
+}
+
 function encryptToken(plainText) {
     const iv = crypto.randomBytes(12);// 12 random bytes to put into AES
     const cipher = crypto.createCipheriv(ALGO, KEY, iv); //Configure the AES algorithm (if using a different algorithm a value specifying the bytes is required GCM spits 16 out by default)
@@ -41,6 +99,7 @@ function encryptToken(plainText) {
     const authTag = cipher.getAuthTag(); // get the AUTH tag (made using GHASH which is an absolute black box of math to me, so I will just take it)
     return Buffer.concat([iv, authTag, encrypted]).toString("base64"); // store the whole thing in the db as plaintext via base64
 }
+
 //exact reverse path of the encrypt function the iv bytes are stored and are used to produce the same cipher and reverse the XOR back into plaintext
 function decryptToken(cipherText) {
     const data = Buffer.from(cipherText, "base64"); // get the stored output of encrypt and revert it back to bytes
@@ -75,7 +134,7 @@ async function refreshAccessToken(userId) {
 
     db.prepare(
         "UPDATE psn_auth_tokens SET access_token = ?, refresh_token= ?, access_token_expires_at = ?, refresh_token_expires_at = ?, needs_reauth = 0, updated_at = datetime('now') WHERE user_id = ? "
-    ).run (
+    ).run(
         encryptToken(tokens.accessToken), encryptToken(tokens.refreshToken),
         accessTokenExpireAt, refreshTokenExpiresAt, userId
     );
@@ -83,4 +142,4 @@ async function refreshAccessToken(userId) {
     return {accessToken: tokens.accessToken, expiresAt: accessTokenExpireAt}
 }
 
-module.exports = {exchangeNpssoForTokens, refreshAccessToken, encryptToken, decryptToken}
+module.exports = {exchangeNpssoForTokens, refreshAccessToken, encryptToken, decryptToken, linkPSNAccount}
