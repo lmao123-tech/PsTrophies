@@ -59,3 +59,8 @@ exchange and the trophy calls (undocumented API, but this is the same path
 ## Build order
 
 See "Phased build plan" in `pstrophies-architecture.md`. Short version: auth + self-sync first, then wishlist + catalog search, then friend-matching, then frontend design/wiring.
+
+
+
+## auth
+iv = 12 bytes, shoves 4 more to the end, run in trough AES, you now have a cipher to run your XOR with. 

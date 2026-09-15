@@ -30,18 +30,25 @@ CREATE TABLE IF NOT EXISTS psn_auth_tokens (
 -- Canonical game row. Reconciliation note: Sony's trophy API keys games by
 -- npCommunicationId, the library/purchase API keys by npTitleId, and
 -- PlatPrices has its own catalog id — three ID systems that don't share a
--- key. Matched by normalized title+platform at sync time; all three IDs
--- kept nullable on one row.
-CREATE TABLE IF NOT EXISTS games (
-  id                   TEXT PRIMARY KEY,
-  np_communication_id  TEXT UNIQUE,
-  np_title_id          TEXT UNIQUE,
-  platprices_id        TEXT UNIQUE,
-  title                TEXT NOT NULL,
-  platform             TEXT,
-  cover_image_url      TEXT,
-  created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+-- key. Matched by normalized_title+platform at sync time (see
+-- src/utils/normalizeTitle.js); all three IDs kept nullable on one row.
+CREATE TABLE IF NOT EXISTS games
+(
+    id                  TEXT PRIMARY KEY,
+    np_communication_id TEXT UNIQUE,
+    np_title_id         TEXT UNIQUE,
+    platprices_id       TEXT UNIQUE,
+    title               TEXT NOT NULL,
+    normalized_title    TEXT NOT NULL,
+    platform            TEXT,
+    cover_image_url     TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unclaimed_title_platform
+    ON games (normalized_title, platform)
+    WHERE np_communication_id IS NULL;
 
 -- A user owns a game (from getPurchasedGameList).
 CREATE TABLE IF NOT EXISTS library_entries (

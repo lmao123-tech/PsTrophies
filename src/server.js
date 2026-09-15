@@ -1,12 +1,11 @@
-// Top-level entry point. Deliberately minimal — this is the "top-level"
-// wiring; the actual logic behind each route/service lives in the stub
-// files under src/auth, src/sync, src/catalog, src/social and gets filled
-// in during implementation (see README.md + the architecture doc for scope
-// per module).
+// Top-level entry point / route wiring. Everything else lives under
+// src/api (routes + controllers), src/auth, src/sync, src/catalog,
+// src/social — see README.md + the architecture doc for scope per module.
 
 require("dotenv").config();
 const express = require("express");
 const db = require("../db"); // opens db/dev.db and runs db/init.sql (idempotent)
+const apiRoutes = require("./api/routes");
 
 const app = express();
 app.use(express.json());
@@ -18,11 +17,20 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", users: count });
 });
 
-// Mount route modules here as they're implemented, e.g.:
-// app.use("/api/auth", require("./api/routes/auth"));
-// app.use("/api/library", require("./api/routes/library"));
-// app.use("/api/wishlist", require("./api/routes/wishlist"));
-// app.use("/api/social", require("./api/routes/social"));
+app.use("/api", apiRoutes);
+
+// Mount more route modules under src/api/routes/index.js as they're built
+// (wishlist, visibility settings, auth) — not here.
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: "Internal server error" });
+});
 
 const PORT = process.env.PORT || 3000;
 
