@@ -45,11 +45,6 @@ CREATE TABLE IF NOT EXISTS games
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unclaimed_title_platform
-    ON games (normalized_title, platform)
-    WHERE np_communication_id IS NULL;
-
 -- A user owns a game (from getPurchasedGameList).
 CREATE TABLE IF NOT EXISTS library_entries (
   id                 TEXT PRIMARY KEY,
