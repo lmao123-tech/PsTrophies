@@ -18,7 +18,6 @@ const db = require("../../db");
 const crypto = require("crypto");
 const {refreshAccessToken} = require("../auth/psnAuth");
 const {normalizeTitle} = require("../utils/normalizeTitle");
-const e = require("express");
 
 const PAGE_SIZE = 100;
 
